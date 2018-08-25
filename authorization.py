@@ -3,54 +3,49 @@ import requests
 import json
 import time
 
-
-TOKEN_FILE = "token_file.json"
-USER_EMAIL = "a6427229@nwytg.net"
-USER_PASSW = "AW3EDCc"
-
 class Authorization:
-    def __init__(self, host, client_id):
-        self.login_data = {
-            "client_id": client_id,
-            "username": None,
-            "password": None,
+    def __init__(self, host, client_id, username, password, token_file=None):
+        self.host = host
+        self.client_id = client_id
+        self.username = username
+        self.password = password
+        if os.path.isfile(token_file):
+            self.load_token(token_file)
+        else:
+            self.update_token()
+
+    def update_token(self):
+        login_data = {
+            "client_id": self.client_id,
+            "username": self.username,
+            "password": self.password,
             "connection": "Username-Password-Authentication",
             "grant_type": "password",
             "scope": "openid"
         }
-        self.host = host
-        if os.path.isfile(TOKEN_FILE):
-            auth_data = json.load(open(TOKEN_FILE))
-            self.id_token = auth_data["id_token"]
-            self.valid_to = auth_data["token_end_time"]
-        else:
-            self.update_token()
-
-    def connect(self, username, password):
-        self.login_data["username"] = username
-        self.login_data["password"] = password
-        # curl --request POST --url https://spaceknow.auth0.com/oauth/ro --header 'Content-Type: application/json' --data {json.dumps(self.login_data)}
-        r = requests.post(self.host, data=self.login_data)
+        r = requests.post(self.host, data=login_data)
         if r.status_code == 200:
             jsondata = r.json()
             self.id_token = jsondata.get("id_token")
-            self.valid_to = time.time() + 10 * 60 * 60,  # current time plus 10 hours
+            self.valid_to = time.time() + 10 * 60 * 60  # current time plus 10 hours
         else:
             print(r.status_code)
             print(r.headers['content-type'])
             print(r.encoding)
             print(r.text)
 
-    def update_token(self):
-        auth.connect()
-        print("GET NEW TOKEN")
-        print(auth.id_token)
-
-        auth_data = {
-            "id_token": auth.id_token,
-            "token_end_time": self.valid_to
+    def save_token(self, token_file):
+        file_data = {
+            "id_token": self.id_token,
+            "valid_to": self.valid_to,
         }
-        json.dump(auth_data, open(TOKEN_FILE, "w"))
+        json.dump(file_data, open(token_file, "w"))
+
+    def load_token(self, token_file):
+        if os.path.isfile(token_file):
+            file_data = json.load(open(token_file))
+            self.id_token = file_data["id_token"]
+            self.valid_to = file_data["valid_to"]
 
     def headers(self):
         rest_of_time = self.valid_to - time.time()
@@ -62,39 +57,26 @@ class Authorization:
         }
         return headers
 
-
 # username="a6427229@nwytg.net", password="AW3EDCc"
 class SpaceKnowAuth(Authorization):
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__(
             host='https://spaceknow.auth0.com/oauth/ro',
-            client_id="hmWJcfhRouDOaJK2L8asREMlMrv3jFE1")
+            client_id="hmWJcfhRouDOaJK2L8asREMlMrv3jFE1",
+            **kwargs)
 
 class SpaceKnowTestAuth(Authorization):
-    def __init__(self):
+    def __init__(self, **kwargs):
         super().__init__(
             host='https://spaceknow-test.auth0.com/oauth/ro',
-            client_id="UWBUvt919N0sUXjG1CepGhiR0DJuazSY")
+            client_id="UWBUvt919N0sUXjG1CepGhiR0DJuazSY",
+            **kwargs)
 
 
 if __name__ == '__main__':
-    try:
-        auth_data = json.load(open(TOKEN_FILE))
-        id_token = auth_data["id_token"]
-        rest_of_time = auth_data["token_end_time"] - time.time()
-        if rest_of_time < 0:
-            raise TimeoutError
-        print(rest_of_time, "seconds is remaining")
-    except:
-        auth = SpaceKnowTestAuth()
-        auth = SpaceKnowAuth()
-
-        auth.connect("a6427229@nwytg.net", "AW3EDCc")
-        print("GET NEW TOKEN")
-        print(auth.id_token)
-
-        auth_data = {
-            "id_token": auth.id_token,
-            "token_end_time": time.time() + 10 * 60 * 60,  # current time plus 10 hours
-        }
-        json.dump(auth_data, open(TOKEN_FILE, "w"))
+    token_file = "token_file.json"
+    auth = SpaceKnowAuth(username="a6427229@nwytg.net", password="AW3EDCc", token_file=token_file)
+    print(auth.id_token)
+    rest_of_time = auth.valid_to - time.time()
+    print("{} minutes and {} seconds is remaining".format(rest_of_time / 60, rest_of_time % 60))
+    auth.save_token(token_file)
