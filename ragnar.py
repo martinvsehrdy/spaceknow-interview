@@ -1,5 +1,11 @@
 import json
 import requests
+import wget
+import os
+import tarfile
+import struct
+import numpy as np
+import cv2
 from task_in_progress import TaskInProgress
 
 URL = "https://spaceknow-imagery.appspot.com"
@@ -199,8 +205,63 @@ class SearchScene(TaskInProgress):
             print(response.json())
 
 class SKImage:
+    data_type_dict = {
+        8: np.uint8,
+        9: np.int8,
+        16: np.uint16,
+        17: np.int16,
+        32: np.uint32,
+        33: np.int32,
+        64: np.uint64,
+        65: np.int64,
+    }
     def __init__(self, ski_file):
         self.ski_file = ski_file
+
+        tar = tarfile.open(self.ski_file)
+        ski_dir = os.path.splitext(self.ski_file)[0]
+        if not os.path.isdir(ski_dir):
+            os.mkdir(ski_dir)
+        tar.extractall(path=os.path.join(".", ski_dir))
+        tar.close()
+        ski_info = json.load(open(os.path.join(ski_dir, "info.json")))
+        img_channels = {}
+        for index, band in enumerate(ski_info["bands"]):
+            band
+            skband_file = os.path.join(ski_dir, str(index).zfill(5) + ".skb")
+
+            img = self.load_skband_file(skband_file)
+            img_channels.setdefault(band["names"][0], img)
+            if band["names"][0].find("MASK") >= 0:
+                cv2.imshow(band["names"][0], 100*img.astype(np.uint8))
+            else:
+                cv2.imshow(band["names"][0], img.astype(np.uint8))
+            cv2.waitKey(1)
+
+        image = np.stack((img_channels["blue"], img_channels["green"], img_channels["red"]), axis=2)
+        image = image.astype(np.uint8)
+        cv2.imshow("image", image)
+        cv2.waitKey(1)
+
+
+    def load_skband_file(self, skband_file):
+        f = open(skband_file, "rb")
+        data_type_idx = struct.unpack("<H", f.read(2))[0]
+        data_type = self.data_type_dict.get(data_type_idx)
+        num_columns = struct.unpack("<I", f.read(4))[0]
+        num_rows = struct.unpack("<I", f.read(4))[0]
+        bitdepth = data_type_idx & ~0x01
+        ret = np.zeros((num_rows, num_columns), dtype=data_type)
+        num_bytes_in_row = num_columns * bitdepth//8
+        for r in range(num_rows):
+            row_bytes = f.read(num_bytes_in_row)
+            next_row = np.frombuffer(row_bytes, dtype=data_type)
+            if r == 0:
+                ret[r,:] = next_row
+            else:
+                ret[r,:] = ret[r-1,:] + next_row
+
+        return ret
 
 class GetImage:
     def __init__(self, sceneId, extent, resolution=None, headers={"content-type": "application/json"}):
@@ -237,7 +298,24 @@ class GetImage:
             self.status = "FAILED"
 
     def retrieve(self):
-        pass
+        payload = {
+            "pipelineId": self.pipelineId
+        }
+        response = requests.post(
+            URL + "/imagery/get-image/retrieve",
+            headers=self.headers,
+            data=json.dumps(payload))
+        if response.status_code == 200:
+            response_json = response.json()
+            self.meta = response_json["meta"]
+            self.extent = response_json["extent"]
+            url = response_json["url"]
+
+            filename = wget.download(url)
+            self.skimage = SKImage(filename)
+        else:
+            print(response.status_code)
+            print(response.json())
 
     def save_ski(self, url):
         pass
