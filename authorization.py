@@ -9,10 +9,14 @@ class Authorization:
         self.client_id = client_id
         self.username = username
         self.password = password
+        self.valid_to = 0.0
         if os.path.isfile(token_file):
             self.load_token(token_file)
-        else:
+        if self.valid_to < time.time():
             self.update_token()
+
+    def __repr__(self):
+        return f"{self.username} valid to {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(self.valid_to))}"
 
     def update_token(self):
         login_data = {
