@@ -1,5 +1,6 @@
 import json
 import requests
+from task_in_progress import TaskInProgress
 
 URL = "https://spaceknow-imagery.appspot.com"
 
@@ -26,6 +27,8 @@ class SatelliteImagery:
             assert dataset in ["COPERNICUS/S1_GRD", "COPERNICUS/S2", "LANDSAT/LC08/C01/T1", "LANDSAT/LE07/C01/T1", "MODIS/006/MOD08_M3", "MODIS/006/MYD08_M3"]
         self.dataset = dataset
 
+    def __repr__(self):
+        return f"{self.provider}:{self.dataset}"
 
 class Band:
     def __init__(self, names, bitDepth, gsd, pixelSizeX, pixelSizeY, crsOriginX, crsOriginY,
@@ -45,21 +48,30 @@ class Band:
         self.reflectanceMult = reflectanceMult
         self.reflectanceAdd = reflectanceAdd
 
+    def __repr__(self):
+        return f"{self.names[0]} pixelSize={self.pixelSizeX}x{self.pixelSizeY}"
+
     @classmethod
     def fromDictData(cls, data):
-        cls(names=data["names"],
-            bitDepth=data["bitDepth"],
-            gsd=data["gsd"],
-            pixelSizeX=data["pixelSizeX"],
-            pixelSizeY=data["pixelSizeY"],
-            crsOriginX=data["crsOriginX"],
-            crsOriginY=data["crsOriginY"],
-            approximateResolutionX=data["approximateResolutionX"],
-            approximateResolutionY=data["approximateResolutionY"],
-            radianceMult=data["radianceMult"],
-            radianceAdd=data["radianceAdd"],
-            reflectanceMult=data["reflectanceMult"],
-            reflectanceAdd=data["reflectanceAdd"])
+        optional_arguments = {}
+        if data.get("radianceMult") is not None:
+            optional_arguments["radianceMult"] = data["radianceMult"]
+        if data.get("radianceAdd") is not None:
+            optional_arguments["radianceAdd"] = data["radianceAdd"]
+        if data.get("reflectanceMult") is not None:
+            optional_arguments["reflectanceMult"] = data["reflectanceMult"]
+        if data.get("reflectanceAdd") is not None:
+            optional_arguments["reflectanceAdd"] = data["reflectanceAdd"]
+        return  cls(names=data["names"],
+                   bitDepth = data["bitDepth"],
+                   gsd = data["gsd"],
+                   pixelSizeX = data["pixelSizeX"],
+                   pixelSizeY = data["pixelSizeY"],
+                   crsOriginX = data["crsOriginX"],
+                   crsOriginY = data["crsOriginY"],
+                   approximateResolutionX = data["approximateResolutionX"],
+                   approximateResolutionY = data["approximateResolutionY"],
+                   **optional_arguments)
 
 class Metadata:
     def __init__(self, sceneId, satellite_imagery, satellite, datetime, crsEpsg, footprint,
@@ -81,7 +93,7 @@ class Metadata:
             anomalousRatio:
             bands:
         '''
-        self.sceneId =sceneId
+        self.sceneId = sceneId
         self.satellite_imagery = satellite_imagery
         self.satellite = satellite
         self.datetime = datetime
@@ -95,24 +107,36 @@ class Metadata:
         self.anomalousRatio = anomalousRatio
         self.bands = bands
 
+    def __repr__(self):
+        return f"sceneId={self.sceneId} {self.satellite_imagery}, {self.datetime}, bands={len(self.bands)}"
+
     @classmethod
     def fromDictData(cls, data):
-        cls(sceneId=data["sceneId"],
-            satellite_imagery=SatelliteImagery(data["provider"], data["dataset"]),
-            satellite=data["satellite"],
-            datetime=data["datetime"],
-            crsEpsg=data["crsEpsg"],
-            footprint=data["footprint"],
-            offNadir=data["offNadir"],
-            sunElevation=data["sunElevation"],
-            sunAzimuth=data["sunAzimuth"],
-            satelliteAzimuth=data["satelliteAzimuth"],
-            cloudCover=data["cloudCover"],
-            anomalousRatio=data["anomalousRatio"],
-            bands=[Band.fromDictData(d) for d in data["bands"]])
+        optional_arguments = {}
+        if data.get("offNadir") is not None:
+            optional_arguments["offNadir"] = data["offNadir"]
+        if data.get("sunElevation") is not None:
+            optional_arguments["sunElevation"] = data["sunElevation"]
+        if data.get("sunAzimuth") is not None:
+            optional_arguments["sunAzimuth"] = data["sunAzimuth"]
+        if data.get("satelliteAzimuth") is not None:
+            optional_arguments["satelliteAzimuth"] = data["satelliteAzimuth"]
+        if data.get("cloudCover") is not None:
+            optional_arguments["cloudCover"] = data["cloudCover"]
+        if data.get("anomalousRatio") is not None:
+            optional_arguments["anomalousRatio"] = data["anomalousRatio"]
+        return cls(sceneId=data["sceneId"],
+                   satellite_imagery=SatelliteImagery(data["provider"], data["dataset"]),
+                   satellite=data["satellite"],
+                   datetime=data["datetime"],
+                   crsEpsg=data["crsEpsg"],
+                   footprint=data["footprint"],
+                   bands=[Band.fromDictData(d) for d in data["bands"]],
+                   **optional_arguments)
 
 
-class SearchScene:
+
+class SearchScene(TaskInProgress):
     def __init__(self, satelite_imagery, extent, startDatetime=None, endDatetime=None, minIntersection=None, headers={"content-type": "application/json"}):
         '''
         Args:
@@ -128,7 +152,7 @@ class SearchScene:
         self.endDatetime = endDatetime
         self.minIntersection = minIntersection
         self.headers = headers
-        self.metadata = None
+        self.results = []
         self.pipelineId = None
         self.status = None
 
@@ -169,8 +193,51 @@ class SearchScene:
             data=json.dumps(payload))
         if response.status_code == 200:
             response_json = response.json()
-            self.metadata = Metadata.fromDictData(response_json)
+            self.results = [Metadata.fromDictData(result) for result in response_json["results"]]
         else:
             print(response.status_code)
             print(response.json())
 
+class SKImage:
+    def __init__(self, ski_file):
+        self.ski_file = ski_file
+
+class GetImage:
+    def __init__(self, sceneId, extent, resolution=None, headers={"content-type": "application/json"}):
+        '''
+        Args:
+            sceneId (string):
+            extent (object):
+            resolution (float):
+        '''
+        self.sceneId = sceneId
+        self.extent = extent
+        self.resolution = resolution
+        self.headers = headers
+        self.pipelineId = None
+        self.status = None
+
+    def initiate(self):
+        payload = {
+            "sceneId": self.sceneId,
+            "extent": self.extent,
+            "resolution": self.resolution
+        }
+        response = requests.post(
+            URL + "/imagery/get-image/initiate",
+            headers=self.headers,
+            data=json.dumps(payload))
+        if response.status_code == 200:
+            response_json = response.json()
+            self.pipelineId = response_json["pipelineId"]
+            self.status = response_json["status"]
+        else:
+            print(response.status_code)
+            print(response.json())
+            self.status = "FAILED"
+
+    def retrieve(self):
+        pass
+
+    def save_ski(self, url):
+        pass
