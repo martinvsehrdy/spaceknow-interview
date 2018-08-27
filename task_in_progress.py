@@ -1,3 +1,4 @@
+import time
 import json
 import requests
 
@@ -30,7 +31,14 @@ class TaskInProgress:
         self.status = response_json["status"]
         return self.status
 
-
+    def wait_till_job_is_done(self):
+        if self.status in ["NEW", "PROCESSING"]:
+            while True:
+                self.checkStatus()
+                if self.status in ["FAILED", "RESOLVED"]:
+                    # not in ["NEW", "PROCESSING"]
+                    break
+                time.sleep(10.0)
 
 
 if __name__ == '__main__':
