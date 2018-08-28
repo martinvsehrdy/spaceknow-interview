@@ -54,7 +54,7 @@ if __name__ == '__main__':
                 features.extend(kraken.features)
             # print result depends on shoot time
             img_file = metadata.datetime + "_" + metadata.satellite + ".png"
-            img_file = re.sub('[^-a-zA-Z0-9_.() ]+', '_', img_file)
+            img_file = re.sub('[^-a-zA-Z0-9_.()]+', '_', img_file)
             print(metadata.datetime, metadata.satellite)
             cv2.imwrite(img_file, rgb_image)
             print(f"Image saved to {img_file}")

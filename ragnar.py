@@ -2,10 +2,12 @@ import json
 import requests
 import wget
 import os
+from io import BytesIO
 import tarfile
 import struct
 import numpy as np
 import cv2
+from urllib.request import urlopen
 from task_in_progress import TaskInProgress
 from spaceknow_tools import SatelliteImagery, Metadata, Band
 
@@ -85,22 +87,25 @@ class SKImage:
         64: np.uint64,
         65: np.int64,
     }
-    def __init__(self, ski_file):
-        self.ski_file = ski_file
+    def __init__(self, fileobj):
+        '''
+        Driver to use *.ski file (actually *.tar.gz) that include info.json, meta.json and 0000x.skb
+        Args:
+            ski_file (tarfile): handler to opened file, handler has methods read()
 
-        tar = tarfile.open(self.ski_file)
-        ski_dir = os.path.splitext(self.ski_file)[0]
-        if not os.path.isdir(ski_dir):
-            os.mkdir(ski_dir)
-        tar.extractall(path=os.path.join(".", ski_dir))
-        tar.close()
-        ski_info = json.load(open(os.path.join(ski_dir, "info.json")))
+        '''
+        tfile = tarfile.open(fileobj=fileobj)
+        ski_info = tfile.extractfile("info.json").read()
+        ski_info = json.loads(ski_info)
+        ski_meta = tfile.extractfile("meta.json").read()
+        ski_meta = json.loads(ski_meta)
+        self.metadata = ski_meta
+
         img_channels = {}
         for index, band in enumerate(ski_info["bands"]):
-            band
-            skband_file = os.path.join(ski_dir, str(index).zfill(5) + ".skb")
+            skband_file = tfile.extractfile(str(index).zfill(5) + ".skb")
 
-            img = self.load_skband_file(skband_file)
+            img = self.parse_skband_file(skband_file)
             img_channels.setdefault(band["names"][0], img)
             #if band["names"][0].find("MASK") >= 0:
             #    cv2.imshow(band["names"][0], 100*img.astype(np.uint8))
@@ -111,18 +116,16 @@ class SKImage:
         self.imageRGB = np.stack((img_channels["blue"], img_channels["green"], img_channels["red"]), axis=2)
         self.imageRGB = self.imageRGB.astype(np.uint8)
 
-
-    def load_skband_file(self, skband_file):
-        f = open(skband_file, "rb")
-        data_type_idx = struct.unpack("<H", f.read(2))[0]
+    def parse_skband_file(self, skband_file):
+        data_type_idx = struct.unpack("<H", skband_file.read(2))[0]
         data_type = self.data_type_dict.get(data_type_idx)
-        num_columns = struct.unpack("<I", f.read(4))[0]
-        num_rows = struct.unpack("<I", f.read(4))[0]
+        num_columns = struct.unpack("<I", skband_file.read(4))[0]
+        num_rows = struct.unpack("<I", skband_file.read(4))[0]
         bitdepth = data_type_idx & ~0x01
         ret = np.zeros((num_rows, num_columns), dtype=data_type)
         num_bytes_in_row = num_columns * bitdepth//8
         for r in range(num_rows):
-            row_bytes = f.read(num_bytes_in_row)
+            row_bytes = skband_file.read(num_bytes_in_row)
             next_row = np.frombuffer(row_bytes, dtype=data_type)
             if r == 0:
                 ret[r,:] = next_row
@@ -180,9 +183,11 @@ class GetImage(TaskInProgress):
             self.meta = response_json["meta"]
             self.extent = response_json["extent"]
             url = response_json["url"]
-
-            filename = wget.download(url)
-            self.skimage = SKImage(filename)
+            urlstream = urlopen(url)
+            tempfile = BytesIO()
+            tempfile.write(urlstream.read())
+            tempfile.seek(0)
+            self.skimage = SKImage(tempfile)
         else:
             print(response.status_code)
             print(response.json())
