@@ -1,4 +1,7 @@
 import geojson
+import numpy as np
+import cv2
+from pyreproj import Reprojector
 from urllib.request import urlopen
 
 # preview-multispectral
@@ -143,3 +146,37 @@ class DetectionTile:
 
     def url(self):
         return f"https://spaceknow-kraken.appspot.com/kraken/grid/{self.mapId}/{self.geometry_id}/{self.zoom}/{self.x}/{self.y}/detections.geojson"
+
+class EPSGTransformator:
+    def __init__(self, crsEpsg):
+        self.crsEpsg = crsEpsg
+        rp = Reprojector()
+        self.transform_fce = rp.get_transformation_function(to_srs=crsEpsg)
+
+    def transform(self, points):
+        '''
+        Transform points coordinates from WGS84 to coordinates defined as crsEpsg
+        Args:
+            points (list of list of float): list of Points, where Point is list of float
+
+        Returns: list of Points in new coordinates
+        '''
+        return [self.transform_fce(p[0], p[1]) for p in points]
+
+def draw_extent(image, crsOrigin, pixelSize, polygons, color):
+    '''
+    Draw extent (polygon) to image.
+    Args:
+        image (np.array):
+        crsOrigin (list of crsOrigin): [crsOriginX, crsOriginY] from metadata
+        pixelSize(list of pixelSize): [pixelSizeX, pixelSizeY] from metadata
+        polygons (list of list of list of float): list of Polygons, Polygon is list of Points, Point is list of floats
+        color (tuple of int): tuple of 3 numbers representing RGB - red green, blue
+    Returns: image
+    '''
+    npcrsOriginXY = np.array(crsOrigin)
+    nppixelSizeXY = np.array(pixelSize)
+    for polygon in polygons:
+        dif = np.array(polygon) - npcrsOriginXY
+        polygon_to_draw = np.divide(dif, nppixelSizeXY).astype(np.int)
+        cv2.polylines(image, [polygon_to_draw], True, color, thickness=3)

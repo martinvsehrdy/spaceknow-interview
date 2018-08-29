@@ -9,6 +9,7 @@ import cv2
 from authorization import SpaceKnowTestAuth, SpaceKnowAuth
 from ragnar import SearchScene, SatelliteImagery, GetImage
 from kraken import Kraken
+from spaceknow_tools import draw_extent, EPSGTransformator
 
 
 if __name__ == '__main__':
@@ -43,6 +44,8 @@ if __name__ == '__main__':
             if getimage.status == "RESOLVED":
                 getimage.retrieve()
                 rgb_image = getimage.skimage.imageRGB
+                crsOriginXY = getimage.meta["bands"][0]["crsOriginX"], getimage.meta["bands"][0]["crsOriginY"]
+                pixelSizeXY = getimage.meta["bands"][0]["pixelSizeX"], getimage.meta["bands"][0]["pixelSizeY"]
 
             # get detections and draw cars to image
             features = []
@@ -52,6 +55,13 @@ if __name__ == '__main__':
             if kraken.status == "RESOLVED":
                 kraken.retrieve()
                 features.extend(kraken.features)
+
+                trans = EPSGTransformator(metadata.crsEpsg)
+                for feature in features:
+                    polygons1 = feature["geometry"]["coordinates"]
+                    polygons2 = [trans.transform(polygon) for polygon in polygons1]
+                    draw_extent(rgb_image, crsOriginXY, pixelSizeXY, polygons2, (255, 0, 0))
+
             # print result depends on shoot time
             img_file = metadata.datetime + "_" + metadata.satellite + ".png"
             img_file = re.sub('[^-a-zA-Z0-9_.()]+', '_', img_file)
