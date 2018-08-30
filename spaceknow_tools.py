@@ -179,4 +179,4 @@ def draw_extent(image, crsOrigin, pixelSize, polygons, color):
     for polygon in polygons:
         dif = np.array(polygon) - npcrsOriginXY
         polygon_to_draw = np.divide(dif, nppixelSizeXY).astype(np.int)
-        cv2.polylines(image, [polygon_to_draw], True, color, thickness=3)
+        cv2.polylines(image, [polygon_to_draw], True, color)

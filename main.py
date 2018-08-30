@@ -37,16 +37,6 @@ if __name__ == '__main__':
     if search.status == "RESOLVED":
         search.retrieve()
         for metadata in search.results:
-            # download .ski file and extract image
-            getimage = GetImage(sceneId=metadata.sceneId, extent=extent, headers=auth.headers())
-            getimage.initiate()
-            getimage.wait_till_job_is_done()
-            if getimage.status == "RESOLVED":
-                getimage.retrieve()
-                rgb_image = getimage.skimage.imageRGB
-                crsOriginXY = getimage.meta["bands"][0]["crsOriginX"], getimage.meta["bands"][0]["crsOriginY"]
-                pixelSizeXY = getimage.meta["bands"][0]["pixelSizeX"], getimage.meta["bands"][0]["pixelSizeY"]
-
             # get detections and draw cars to image
             features = []
             kraken = Kraken(metadata.sceneId, extent, "cars", auth.headers())
@@ -56,16 +46,26 @@ if __name__ == '__main__':
                 kraken.retrieve()
                 features.extend(kraken.features)
 
-                trans = EPSGTransformator(metadata.crsEpsg)
-                for feature in features:
-                    polygons1 = feature["geometry"]["coordinates"]
-                    polygons2 = [trans.transform(polygon) for polygon in polygons1]
-                    draw_extent(rgb_image, crsOriginXY, pixelSizeXY, polygons2, (255, 0, 0))
+                # download .ski file and extract image
+                getimage = GetImage(sceneId=metadata.sceneId, extent=extent, headers=auth.headers())
+                getimage.initiate()
+                getimage.wait_till_job_is_done()
+                if getimage.status == "RESOLVED":
+                    getimage.retrieve()
+                    rgb_image = getimage.skimage.imageRGB
+                    crsOriginXY = getimage.meta["bands"][0]["crsOriginX"], getimage.meta["bands"][0]["crsOriginY"]
+                    pixelSizeXY = getimage.meta["bands"][0]["pixelSizeX"], getimage.meta["bands"][0]["pixelSizeY"]
 
-            # print result depends on shoot time
-            img_file = metadata.datetime + "_" + metadata.satellite + ".png"
-            img_file = re.sub('[^-a-zA-Z0-9_.()]+', '_', img_file)
-            print(metadata.datetime, metadata.satellite)
-            cv2.imwrite(img_file, rgb_image)
-            print(f"Image saved to {img_file}")
-            print(f"Number of cars is {len(features)}")
+                    trans = EPSGTransformator(metadata.crsEpsg)
+                    for feature in features:
+                        polygons1 = feature["geometry"]["coordinates"]
+                        polygons2 = [trans.transform(polygon) for polygon in polygons1]
+                        draw_extent(rgb_image, crsOriginXY, pixelSizeXY, polygons2, (255, 0, 0))
+
+                # print result depends on shoot time
+                img_file = metadata.datetime + "_" + metadata.satellite + ".png"
+                img_file = re.sub('[^-a-zA-Z0-9_.()]+', '_', img_file)
+                print(metadata.datetime, metadata.satellite)
+                cv2.imwrite(img_file, rgb_image)
+                print(f"Image saved to {img_file}")
+                print(f"Number of cars is {len(features)}")
